@@ -1,4 +1,4 @@
-module github.com/intel/ehsm/sdk/go
+module github.com/ForLisiteng/ehsm/sdk/go
 
 go 1.20
 
