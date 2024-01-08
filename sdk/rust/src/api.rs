@@ -209,6 +209,29 @@ Output:
 newdatakey  -- The ciphertext of the datakey wrapped by the ukey stores in BASE64 string.
 */
     async fn export_datakey(&mut self, _keyid: &str, _ukeyid: &str, _datakey: &str, aad_b64: Option<&str>)-> Result<String>;
+/*
+Description:
+Queries the parameters that are used to import key material for a customer master key (CMK).
+Input:
+keyid  -- The unique keyid of import CMK.
+keyspec  -- The type of the public key that is used to encrypt key material.
+Output:
+pubkey  -- The public key that is used to encrypt key material.The public key is Base64-encoded.
+import_token  -- The import_token is Base64-encoded string.
+*/
+    async fn get_parameters_for_import(&mut self, keyid: &str, keyspec: &str)->Result<(String, String)>;
+/*
+Description:
+Call the ImportKeyMaterial operation to import the key material.
+Input:
+keyid  -- The unique keyid of import CMK.
+padding_mode  -- The padding mode that is used to encrypt key material.
+key_material  -- The encrypted symmetric key.
+import_token  -- The import_token is Base64-encoded string.
+Output:
+message  -- The description of result（success or failed）.
+*/
+    async fn import_key_material(&mut self, keyid: &str, padding_mode: &str, key_material: &str, import_token: &str)->Result<bool>;
 }
 #[async_trait]
 pub trait Secret {

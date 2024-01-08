@@ -392,7 +392,71 @@ impl KMS for EHSMClient {
 
         Ok(datakey)
     }
+
+    async fn get_parameters_for_import(&mut self, keyid: &str, keyspec: &str)->Result<(String, String)>{
+        let mut payload : Map<String, Value>= Map::new();
+
+        if !keyid.is_empty() {
+            payload.insert("keyid".to_owned(), Value::String(keyid.to_owned()));
+        } else {
+            return Err::<(String, String), anyhow::Error>(anyhow::Error::msg("Keyid is empty."));
+        }
+        if !keyspec.is_empty() {
+            payload.insert("keyspec".to_owned(), Value::String(keyspec.to_owned()));
+        } else {
+            return Err::<(String, String), anyhow::Error>(anyhow::Error::msg("Keyspec is empty."));
+        }
+
+        let body = crate::client::init_params(&payload, &self.appid, &self.apikey);
+
+        let resp_json = crate::client::do_post(body, &self.base_url, "GetParametersForImport")
+                                .await.unwrap();
+        let pubkey = resp_json["result"]["pubkey"]
+                .as_str()
+                .ok_or_else(|| anyhow!("Missing pubkey"))?
+                .to_owned();
+        let import_token = resp_json["result"]["importToken"]
+                .as_str()
+                .ok_or_else(|| anyhow!("Missing importToken"))?
+                .to_owned();
+
+        Ok((pubkey, import_token))
+    }
+
+    async fn import_key_material(&mut self, keyid: &str, padding_mode: &str, key_material: &str, import_token: &str)->Result<bool> {
+        let mut payload : Map<String, Value>= Map::new();
+
+        if !keyid.is_empty() {
+            payload.insert("keyid".to_owned(), Value::String(keyid.to_owned()));
+        } else {
+            return Err::<bool, anyhow::Error>(anyhow::Error::msg("Keyid is empty."));
+        }
+        if !padding_mode.is_empty() {
+            payload.insert("padding_mode".to_owned(), Value::String(padding_mode.to_owned()));
+        } else {
+            return Err::<bool, anyhow::Error>(anyhow::Error::msg("padding_mode is empty."));
+        }
+        if !key_material.is_empty() && crate::client::is_base64(key_material) {
+            payload.insert("key_material".to_owned(), Value::String(key_material.to_owned()));
+        } else {
+            return Err::<bool, anyhow::Error>(anyhow::Error::msg("key_material should be base64 encoded and not empty."));
+        }
+        if !import_token.is_empty() && crate::client::is_base64(import_token) {
+            payload.insert("importToken".to_owned(), Value::String(import_token.to_owned()));
+        } else {
+            return Err::<bool, anyhow::Error>(anyhow::Error::msg("import_token should be base64 encoded and not empty."));
+        }
+
+        let body = crate::client::init_params(&payload, &self.appid, &self.apikey);
+
+        let resp_json = crate::client::do_post(body, &self.base_url, "ImportKeyMaterial")
+                                .await.unwrap();
+
+        let result = resp_json["result"]["result"]
+                .as_bool()
+                .ok_or_else(|| anyhow!("result is none"))?
+                .to_owned();
+        Ok(result)
+    }
 }
-
-
 
