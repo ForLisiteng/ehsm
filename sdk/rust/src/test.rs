@@ -3,7 +3,14 @@
 mod tests {
     use base64::{encode, decode};
     use crate::{client::EHSMClient, api::KMS};
-    use sha2::{Sha256, Digest};
+    use sha2::{Sha256, Digest as Sha2Digest};
+    use base64;
+    use rand::RngCore;
+    use openssl::rsa::{Rsa, Padding};
+    use openssl::encrypt::Encrypter;
+    use openssl::pkey::PKey;
+    use openssl::hash::MessageDigest;
+    use sm3::{Digest as Sm3Digest, Sm3};
 
     #[tokio::test]
     async fn test_asymmetrickey_generate_key() {
@@ -252,7 +259,7 @@ mod tests {
         let msg = "unit test";
         let mut hasher = Sha256::new();
         hasher.update(msg);
-        let msg_digest256 = hasher.finalize().to_vec();
+        let msg_digest256 = hasher.finalize();
 
         for keyspec in keyspecs.iter() {
             for padding_mode in padding_modes.iter() {
@@ -331,8 +338,8 @@ mod tests {
         let msg = "unit test";
         let mut hasher = Sha256::new();
         hasher.update(msg);
-        let msg_digest256 = hasher.finalize().to_vec();
-
+        let msg_digest256 = hasher.finalize();
+        
         for keyspec in keyspecs.iter() {
             let keyid = client.create_key(keyspec, "EH_INTERNAL_KEY", "EH_KEYUSAGE_SIGN_VERIFY")
                             .await
@@ -364,12 +371,12 @@ mod tests {
                         .unwrap();
 
         let signature_raw = client.sign(&keyid.to_owned(),
-                                  "EH_PAD_NONE", "EH_SHA_256", "EH_RAW", &encode(msg).to_string()[..])
+                                  "EH_PAD_NONE", "EH_SM3", "EH_RAW", &encode(msg).to_string()[..])
                                   .await
                                   .expect("sign fail");
 
         let verify_raw = client.verify(&keyid.to_owned(),
-                                   "EH_PAD_NONE", "EH_SHA_256", "EH_RAW",
+                                   "EH_PAD_NONE", "EH_SM3", "EH_RAW",
                                    &encode(msg).to_string()[..],
                                    &signature_raw.to_owned()).await;
 
@@ -381,25 +388,123 @@ mod tests {
         let mut client = EHSMClient::new();
 
         let msg = "unit test";
-        let mut hasher = Sha256::new();
-        hasher.update(msg);
-        let msg_digest256 = hasher.finalize().to_vec();
+        let msg_digest256 = Sm3::digest(msg);
 
         let keyid = client.create_key("EH_SM2", "EH_INTERNAL_KEY", "EH_KEYUSAGE_SIGN_VERIFY")
                         .await
                         .unwrap();
 
         let signature_digest = client.sign(&keyid.to_owned(),
-                                    "EH_PAD_NONE", "EH_SHA_256", "EH_DIGEST",
+                                    "EH_PAD_NONE", "EH_SM3", "EH_DIGEST",
                                     &encode(msg_digest256.to_owned()).to_string()[..])
                                     .await
                                     .expect("sign fail");
 
         let verify_digest = client.verify(&keyid.to_owned(),
-                                    "EH_PAD_NONE", "EH_SHA_256", "EH_DIGEST",
+                                    "EH_PAD_NONE", "EH_SM3", "EH_DIGEST",
                                     &encode(msg_digest256.to_owned()).to_string()[..],
                                     &signature_digest.to_owned()).await;
 
         assert!(verify_digest.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_import_key_pkcs1_5() {
+        let mut client = EHSMClient::new();
+
+        let msg = "unit test";
+        let aad = "aad";
+
+        let keyspecs = vec!["EH_AES_GCM_128", "EH_SM4_CTR", "EH_SM4_CBC"];
+        let warpping_keyspec =["EH_RSA_2048","EH_RSA_3072","EH_RSA_4096"];
+
+        for keyspecs in keyspecs.iter() {
+            for warpping_keyspec in warpping_keyspec.iter() {
+                let keyid = client.create_key(keyspecs, "EH_EXTERNAL_KEY", "EH_KEYUSAGE_ENCRYPT_DECRYPT")
+                                .await
+                                .expect("fail to create external key.");
+
+                let (pubkey, import_token) = client.get_parameters_for_import(&keyid, warpping_keyspec)
+                                .await
+                                .expect("fail to get parameters for import.");
+
+                // using key of rsa encrypt symmertic key
+                let mut key = [0u8; 16];
+                rand::thread_rng().fill_bytes(&mut key);
+
+                let rsa = Rsa::public_key_from_pem_pkcs1(&pubkey.as_bytes()).unwrap();
+                let mut key_material = vec![0; rsa.size() as usize];
+                rsa.public_encrypt(&key, &mut key_material, Padding::PKCS1).unwrap();
+
+                let result = client.import_key_material(&keyid, "EH_RSA_PKCS1", &encode(key_material).to_string()[..].to_owned(), &import_token)
+                                    .await
+                                    .unwrap();
+
+                assert!(result);
+                //test external key
+                let ciphertext = client.encrypt(&keyid.to_owned(), &encode(msg).to_string()[..].to_owned(), Some(&encode(aad).to_string()[..]))
+                            .await
+                            .expect("fail to encrypt");
+
+                let plaintext_b64 = client.decrypt(&keyid.to_owned(), &ciphertext.to_owned(), Some(&encode(aad).to_string()[..])).await;
+                let plaintext = String::from_utf8(decode(plaintext_b64.unwrap()).unwrap()[..].to_vec());
+
+                assert_eq!(plaintext.expect("decode base64 fail."), msg);
+            }
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_import_key_pkcs1_oaep() {
+        let mut client = EHSMClient::new();
+
+        let msg = "unit test";
+        let aad = "aad";
+
+        let keyspecs = vec!["EH_AES_GCM_128", "EH_SM4_CTR", "EH_SM4_CBC"];
+        let warpping_keyspec =["EH_RSA_2048","EH_RSA_3072","EH_RSA_4096"];
+
+        for keyspecs in keyspecs.iter() {
+            for warpping_keyspec in warpping_keyspec.iter() {
+                let keyid = client.create_key(keyspecs, "EH_EXTERNAL_KEY", "EH_KEYUSAGE_ENCRYPT_DECRYPT")
+                                .await
+                                .expect("fail to create external key.");
+
+                let (pubkey, import_token) = client.get_parameters_for_import(&keyid, warpping_keyspec)
+                                .await
+                                .expect("fail to get parameters for import.");
+
+                //using key of rsa encrypt symmertic key
+                let mut key = [0u8; 16];
+                rand::thread_rng().fill_bytes(&mut key);
+
+                let rsa = Rsa::public_key_from_pem_pkcs1(&pubkey.as_bytes()).unwrap();
+                let pkey = PKey::from_rsa(rsa).unwrap();
+                let mut encrypter = Encrypter::new(&pkey).unwrap();
+                let _ = encrypter.set_rsa_padding(Padding::PKCS1_OAEP);
+                let _ = encrypter.set_rsa_oaep_md(MessageDigest::sha256());
+                let key_material_len = encrypter.encrypt_len(&key).unwrap();
+                let mut key_material = vec![0u8; key_material_len];
+                let encoded_len = encrypter.encrypt(&key, &mut key_material).unwrap();
+                let key_material = &key_material[..encoded_len];
+
+                let result = client.import_key_material(&keyid, "EH_RSA_PKCS1_OAEP", &encode(key_material).to_string()[..].to_owned(), &import_token)
+                                    .await
+                                    .unwrap();
+                assert!(result);
+
+                //test external key
+                let ciphertext = client.encrypt(&keyid.to_owned(), &encode(msg).to_string()[..].to_owned(), Some(&encode(aad).to_string()[..]))
+                            .await
+                            .expect("fail to encrypt");
+
+                let plaintext_b64 = client.decrypt(&keyid.to_owned(), &ciphertext.to_owned(), Some(&encode(aad).to_string()[..])).await;
+                let plaintext = String::from_utf8(decode(plaintext_b64.unwrap()).unwrap()[..].to_vec());
+
+                assert_eq!(plaintext.expect("decode base64 fail."), msg);
+            }
+        }
+    }
 }
+
+
