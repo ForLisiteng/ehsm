@@ -2,7 +2,7 @@ FROM ubuntu:20.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ARG TAG_VERSION=main
+ARG TAG_VERSION=lst_main
 
 RUN apt-get update && apt-get install -y \
     vim \
@@ -83,7 +83,7 @@ RUN apt-get update &&apt-get install -y \
 
 # Build App from source
 WORKDIR /home
-RUN git clone --recursive -b $TAG_VERSION https://github.com/intel/ehsm.git \
+RUN git clone --recursive -b $TAG_VERSION https://github.com/ForLisiteng/ehsm.git \
     && cd ehsm \
     && make
 
