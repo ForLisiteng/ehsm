@@ -139,3 +139,33 @@ services:
       - /dev/sgx/provision
     depends_on:
       - dkeycache
+
+# eHSM grpc service
+  ehsmGRPC:
+    container_name: c_ehsmGRPC_1
+    build: 
+      context: grpc
+      args:
+       http_proxy: ${http_proxy}
+       https_proxy: ${http_proxy}
+       IMAGE_NAME_EHSM_BASE: ${DOCKER_REPO}${DOCKER_REPO:+/}${IMAGE_NAME_EHSM_BASE}
+       EHSM_VERSION_STR: ${EHSM_VERSION_STR}
+    image: "${DOCKER_REPO}${DOCKER_REPO:+/}ehsm_grpc_service-dev:${EHSM_VERSION_STR}"
+    ports:
+      - "50051:50051"
+    volumes:
+      - /var/run/aesmd:/var/run/aesmd
+      - ${EHSM_RUNTIME_FOLDER:-/var/run/ehsm}:/var/run/ehsm
+      - ${EHSM_LOCAL_DATA_FOLDER:-/var/local/ehsm}:/var/local/ehsm
+      - ${EHSM_LOG_FOLDER:-/var/log/ehsm}:/var/log/ehsm
+    environment:
+      - PCCS_URL=${PCCS_URL}
+      - no_proxy=${no_proxy}
+      - http_proxy=${http_proxy}
+      - https_proxy=${https_proxy}
+      - DKEYSERVER_ROLE=${DKEYSERVER_ROLE}
+    devices:
+      - /dev/sgx/enclave
+      - /dev/sgx/provision
+    depends_on:
+      - ehsm_base

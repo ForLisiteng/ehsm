@@ -1,0 +1,47 @@
+// To regenerate api.pb.go run `protoc --go_out=. api.proto`
+syntax = "proto3";
+
+package ehsm;
+
+service KeyManagementService {
+    // Execute decryption operation in KMS provider.
+    rpc Decrypt(DecryptRequest) returns (DecryptResponse) {}
+    // Execute encryption operation in KMS provider.
+    rpc Encrypt(EncryptRequest) returns (EncryptResponse) {}
+    // Execute exportDataKey operation in KMS provider.
+    // rpc ExportDataKey(ExportDataKeyRequest) returns (ExportDataKeyResponse) {}
+}
+
+message DecryptRequest {
+    // The data to be decrypted.
+    bytes ciphertext = 1;
+    // Some extra datas input by the user, which could help to to ensure data integrity,
+	// and not be included in the cipherblobs. The aad stored in BASE64 string.
+    string aad = 2;
+    // The keyID that was provided to the apiserver during encryption.
+    // This represents the KMS KEK that was used to encrypt the data.
+    string keyid = 3;
+}
+
+message DecryptResponse {
+    // The decrypted data.
+    bytes plaintext = 1;
+}
+
+message EncryptRequest {
+    // The data to be encrypted.
+    bytes plaintext = 1;
+    // Some extra datas input by the user, which could help to to ensure data integrity,
+	// and not be included in the cipherblobs. The aad stored in BASE64 string.
+    string aad = 2;
+    // keyid is a unique identifier for the request.
+    string keyid = 3;
+}
+
+message EncryptResponse {
+    // The encrypted data.
+    // ciphertext must satisfy the following constraints:  
+    // 1. The ciphertext is not empty.  
+    // 2. The ciphertext is less than 1 kB.
+    bytes ciphertext = 1;
+}

@@ -1,0 +1,35 @@
+# deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+name: grpc-example
+spec:
+replicas: 1
+selector:
+  matchLabels:
+  app: grpc-example
+template:
+  metadata:
+  labels:
+    app: grpc-example
+  spec:
+  containers:
+  - name: grpc-example
+    image: your-grpc-image:latest
+    ports:
+    - containerPort: 50051
+
+---
+
+# service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+name: grpc-example
+spec:
+selector:
+  app: grpc-example
+ports:
+- protocol: TCP
+  port: 80
+  targetPort: 50051
